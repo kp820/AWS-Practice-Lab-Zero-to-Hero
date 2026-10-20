@@ -111,9 +111,138 @@ If `zip` is not installed, install it using the package manager available on the
 ## Step 4: Create the CloudFormation Template
 
 Create the required file:
-
-```bash
 vi /root/nautilus-priority-stack.yml
+```bash
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Day 47 lab: priority-based message routing using SNS, SQS, and Lambda.
+  The Lambda deployment package is created from the supplied /root/index.py.
+
+Resources:
+  HighPriorityQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: nautilus-High-Priority-Queue
+      VisibilityTimeout: 30
+
+  LowPriorityQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: nautilus-Low-Priority-Queue
+      VisibilityTimeout: 30
+
+  PriorityQueuesTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: nautilus-Priority-Queues-Topic
+
+  HighPrioritySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PriorityQueuesTopic
+      Protocol: sqs
+      Endpoint: !GetAtt HighPriorityQueue.Arn
+      RawMessageDelivery: true
+      FilterPolicy:
+        priority:
+          - high
+
+  LowPrioritySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PriorityQueuesTopic
+      Protocol: sqs
+      Endpoint: !GetAtt LowPriorityQueue.Arn
+      RawMessageDelivery: true
+      FilterPolicy:
+        priority:
+          - low
+
+  PriorityQueuesPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref HighPriorityQueue
+        - !Ref LowPriorityQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowTopicToSendMessages
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource:
+              - !GetAtt HighPriorityQueue.Arn
+              - !GetAtt LowPriorityQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref PriorityQueuesTopic
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda_execution_role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: PriorityQueuesAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadAndDeleteQueueMessages
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt HighPriorityQueue.Arn
+                  - !GetAtt LowPriorityQueue.Arn
+              - Sid: PublishToPriorityTopic
+                Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref PriorityQueuesTopic
+
+  PriorityQueueFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nautilus-priorities-queue-function
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 128
+      Timeout: 10
+      Code: ./index.zip
+      Environment:
+        Variables:
+          HIGH_PRIORITY_QUEUE_URL: !Ref HighPriorityQueue
+          LOW_PRIORITY_QUEUE_URL: !Ref LowPriorityQueue
+          PRIORITY_TOPIC_ARN: !Ref PriorityQueuesTopic
+
+Outputs:
+  HighPriorityQueueUrl:
+    Description: URL of the high-priority SQS queue
+    Value: !Ref HighPriorityQueue
+  LowPriorityQueueUrl:
+    Description: URL of the low-priority SQS queue
+    Value: !Ref LowPriorityQueue
+  PriorityTopicArn:
+    Description: ARN of the SNS topic
+    Value: !Ref PriorityQueuesTopic
+  LambdaFunctionName:
+    Description: Deployed Lambda function name
+    Value: !Ref PriorityQueueFunction
+
 ```
 
 Paste the template from the companion file [`nautilus-priority-stack.yml`](./nautilus-priority-stack.yml).
