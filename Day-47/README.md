@@ -257,7 +257,7 @@ The Lambda ZIP file must be uploaded to S3 so CloudFormation can deploy it. Use 
 
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ARTIFACT_BUCKET="nautilus-priority-artifacts-${ACCOUNT_ID} ${AWS_REGION}"
+ARTIFACT_BUCKET="nautilus-priority-artifacts-${ACCOUNT_ID} us-east-1
 
 echo "$ARTIFACT_BUCKET"
 ```
@@ -265,13 +265,10 @@ echo "$ARTIFACT_BUCKET"
 Create the bucket if it does not already exist:
 
 ```bash
-if [ "$AWS_REGION" = "us-east-1" ]; then
-  aws s3api create-bucket --bucket "$ARTIFACT_BUCKET" --region "$AWS_REGION"
-else
   aws s3api create-bucket \
     --bucket "$ARTIFACT_BUCKET" \
     --region "$AWS_REGION" \
-    --create-bucket-configuration LocationConstraint="$AWS_REGION"
+    --create-bucket-configuration LocationConstraint=us-east-1
 fi
 ```
 
@@ -286,7 +283,7 @@ aws cloudformation package \
   --template-file /root/nautilus-priority-stack.yml \
   --s3-bucket "$ARTIFACT_BUCKET" \
   --output-template-file /root/nautilus-priority-stack-packaged.yml \
-  --region "$AWS_REGION"
+  --region us-east-1
 ```
 
 The packaging command uploads the local Lambda ZIP artifact to S3 and writes a packaged CloudFormation template.
