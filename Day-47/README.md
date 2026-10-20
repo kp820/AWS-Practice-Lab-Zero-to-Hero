@@ -257,7 +257,7 @@ The Lambda ZIP file must be uploaded to S3 so CloudFormation can deploy it. Use 
 
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ARTIFACT_BUCKET="nautilus-priority-artifacts-${ACCOUNT_ID}-${AWS_REGION}"
+ARTIFACT_BUCKET="nautilus-priority-artifacts-${ACCOUNT_ID} ${AWS_REGION}"
 
 echo "$ARTIFACT_BUCKET"
 ```
