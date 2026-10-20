@@ -62,9 +62,9 @@ Copied file             Operation logs
 
 ---
 
-## 1. Configure AWS CLI
+## 1. Verify Configure AWS CLI
 
-Verify that AWS CLI is installed and your credentials are configured.
+Go to AWS client and verify that AWS CLI is installed
 
 ```bash
 aws --version
@@ -86,7 +86,7 @@ Use the same region for the S3 buckets, Lambda function, and DynamoDB table wher
 
 **Note:** The following commands configure the named resources. If you already created them, do not create duplicate resources.
 
-## 2. Create the S3 Buckets
+## 2. Create the S3 Buckets (It may be different name in your case)
 
 For a bucket in your configured region, the creation command is:
 
@@ -118,7 +118,7 @@ aws s3api list-buckets \
 
 ## 3. S3 Bucket Policy JSON — Public Read Access
 
-Create a file named `public-bucket-policy.json`:
+Go to permission and edit the bucket policy: 
 
 ```json
 {
@@ -236,8 +236,7 @@ aws iam attach-role-policy \
 
 ## 6. IAM Permissions Policy JSON
 
-The Lambda function needs permission to:
-
+Go to IAM and create a policy:
 * Read objects from the source bucket.
 * Write objects to the private destination bucket.
 * Insert log records into DynamoDB.
