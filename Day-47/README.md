@@ -6,12 +6,12 @@ In Day 47 of my 50 Days AWS Practice Lab Challenge, I deployed an AWS message-pr
 
 The solution uses one Amazon SNS topic to receive published messages and two Amazon SQS queues to separate messages by priority:
 
-- `nautilus-High-Priority-Queue`
-- `nautilus-Low-Priority-Queue`
+- `devops-High-Priority-Queue`
+- `devops-Low-Priority-Queue`
 
-SNS subscription filter policies route messages to the appropriate queue based on the `priority` message attribute. A Lambda function named `nautilus-priorities-queue-function` consumes messages from the queues. The supplied Lambda code is located at `/root/index.py` on the AWS client host.
+SNS subscription filter policies route messages to the appropriate queue based on the `priority` message attribute. A Lambda function named `devops-priorities-queue-function` consumes messages from the queues. The supplied Lambda code is located at `/root/index.py` on the AWS client host.
 
-The CloudFormation stack is named `nautilus-priority-stack`, and its template is created at `/root/nautilus-priority-stack.yml`.
+The CloudFormation stack is named `devops-priority-stack`, and its template is created at `/root/devops-priority-stack.yml`.
 
 > **Priority behavior:** Separate SQS queues do not automatically create a global priority order. The Lambda code must explicitly check and process the high-priority queue before processing the low-priority queue. Review `/root/index.py` to confirm that behavior before testing.
 
@@ -21,12 +21,12 @@ The CloudFormation stack is named `nautilus-priority-stack`, and its template is
 Publisher
    |
    v
-SNS Topic: nautilus-Priority-Queues-Topic
+SNS Topic: devops-Priority-Queues-Topic
    |
-   +-- priority=high --> SQS: nautilus-High-Priority-Queue --+
+   +-- priority=high --> SQS: devops-High-Priority-Queue --+
    |                                                        |
-   +-- priority=low ---> SQS: nautilus-Low-Priority-Queue --+--> Lambda
-                                                               nautilus-priorities-queue-function
+   +-- priority=low ---> SQS: devops-Low-Priority-Queue --+--> Lambda
+                                                               devops-priorities-queue-function
                                                                (checks high priority first)
 ```
 
@@ -34,11 +34,11 @@ SNS Topic: nautilus-Priority-Queues-Topic
 
 | Resource | Name / configuration |
 |---|---|
-| CloudFormation stack | `nautilus-priority-stack` |
-| High-priority SQS queue | `nautilus-High-Priority-Queue` |
-| Low-priority SQS queue | `nautilus-Low-Priority-Queue` |
-| SNS topic | `nautilus-Priority-Queues-Topic` |
-| Lambda function | `nautilus-priorities-queue-function` |
+| CloudFormation stack | `devops-priority-stack` |
+| High-priority SQS queue | `devops-High-Priority-Queue` |
+| Low-priority SQS queue | `devops-Low-Priority-Queue` |
+| SNS topic | `devops-Priority-Queues-Topic` |
+| Lambda function | `devops-priorities-queue-function` |
 | Lambda execution role | `lambda_execution_role` |
 | Lambda runtime | Python 3.12 |
 | Lambda memory | 128 MB |
@@ -111,7 +111,7 @@ If `zip` is not installed, install it using the package manager available on the
 ## Step 4: Create the CloudFormation Template
 
 Create the required file:
-vi /root/nautilus-priority-stack.yml
+vi /root/devops-priority-stack.yml
 ```bash
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
@@ -122,19 +122,19 @@ Resources:
   HighPriorityQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: nautilus-High-Priority-Queue
+      QueueName: devops-High-Priority-Queue
       VisibilityTimeout: 30
 
   LowPriorityQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: nautilus-Low-Priority-Queue
+      QueueName: devops-Low-Priority-Queue
       VisibilityTimeout: 30
 
   PriorityQueuesTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: nautilus-Priority-Queues-Topic
+      TopicName: devops-Priority-Queues-Topic
 
   HighPrioritySubscription:
     Type: AWS::SNS::Subscription
@@ -216,7 +216,7 @@ Resources:
   PriorityQueueFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: nautilus-priorities-queue-function
+      FunctionName: devops-priorities-queue-function
       Runtime: python3.12
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -245,7 +245,7 @@ Outputs:
 
 ```
 
-Paste the template from the companion file [`nautilus-priority-stack.yml`](./nautilus-priority-stack.yml).
+Paste the template from the companion file [`devops-priority-stack.yml`](./devops-priority-stack.yml).
 
 The template creates both queues, the SNS topic, filtered SNS subscriptions, queue permissions allowing SNS to send messages, the Lambda execution role, and the Lambda function.
 
@@ -257,7 +257,7 @@ The Lambda ZIP file must be uploaded to S3 so CloudFormation can deploy it. Use 
 
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ARTIFACT_BUCKET="nautilus-priority-artifacts-${ACCOUNT_ID} us-east-1
+ARTIFACT_BUCKET="devops-priority-artifacts-${ACCOUNT_ID} us-east-1
 
 echo "$ARTIFACT_BUCKET"
 ```
