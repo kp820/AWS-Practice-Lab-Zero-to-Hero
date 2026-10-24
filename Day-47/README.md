@@ -117,7 +117,15 @@ aws s3 cp \
 ## Step 4: Create the CloudFormation Template
 
 Create the required file:
+```bash
+touch /root/datacenter-priority-stack.yml
+```
+open the yml file by VI editor then press i to edit mode 
+
+```bash
 vi /root/datacenter-priority-stack.yml
+```
+Copy the cloudformation template and paste in yml then press Esc and type qw to save the file
 ```bash
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Priority queuing with SNS, SQS and Lambda (datacenter lab)
