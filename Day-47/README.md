@@ -21,12 +21,12 @@ The CloudFormation stack is named `datacenter-priority-stack`, and its template 
 Publisher
    |
    v
-SNS Topic: devops-Priority-Queues-Topic
+SNS Topic: datacenter-Priority-Queues-Topic
    |
-   +-- priority=high --> SQS: devops-High-Priority-Queue --+
+   +-- priority=high --> SQS: datacenter-High-Priority-Queue --+
    |                                                        |
-   +-- priority=low ---> SQS: devops-Low-Priority-Queue --+--> Lambda
-                                                               devops-priorities-queue-function
+   +-- priority=low ---> SQS: datacenter-Low-Priority-Queue --+--> Lambda
+                                                               datacenter-priorities-queue-function
                                                                (checks high priority first)
 ```
 
@@ -34,11 +34,11 @@ SNS Topic: devops-Priority-Queues-Topic
 
 | Resource | Name / configuration |
 |---|---|
-| CloudFormation stack | `devops-priority-stack` |
-| High-priority SQS queue | `devops-High-Priority-Queue` |
-| Low-priority SQS queue | `devops-Low-Priority-Queue` |
-| SNS topic | `devops-Priority-Queues-Topic` |
-| Lambda function | `devops-priorities-queue-function` |
+| CloudFormation stack | `datacenter-priority-stack` |
+| High-priority SQS queue | `datacenter-High-Priority-Queue` |
+| Low-priority SQS queue | `datacenter-Low-Priority-Queue` |
+| SNS topic | `datacenter-Priority-Queues-Topic` |
+| Lambda function | `datacenter-priorities-queue-function` |
 | Lambda execution role | `lambda_execution_role` |
 | Lambda runtime | Python 3.12 |
 | Lambda memory | 128 MB |
