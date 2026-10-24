@@ -71,7 +71,7 @@ The first command confirms which AWS identity is active. The second displays the
 If the region command returns no value, set a region for the current shell, for example:
 
 ```bash
-export AWS_REGION=ap-south-1
+export AWS_REGION=us-east-1
 ```
 
 ## Step 2: Create or select your S3 artifact bucket
