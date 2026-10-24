@@ -4,14 +4,14 @@
 
 In Day 47 of my 50 Days AWS Practice Lab Challenge, I deployed an AWS message-priority workflow using AWS CloudFormation.
 
-The solution uses one Amazon SNS topic to receive published messages and two Amazon SQS queues to separate messages by priority:
+A hands-on AWS lab by TriCloud Ops. We use one AWS CloudFormation stack to build a priority queuing system: messages are published to an SNS topic, routed into a high-priority or low-priority SQS queue, and a Lambda function processes the high-priority messages first.
 
-- `devops-High-Priority-Queue`
-- `devops-Low-Priority-Queue`
+- `datacenter-High-Priority-Queue`
+- `datacenter-Low-Priority-Queue`
 
-SNS subscription filter policies route messages to the appropriate queue based on the `priority` message attribute. A Lambda function named `devops-priorities-queue-function` consumes messages from the queues. The supplied Lambda code is located at `/root/index.py` on the AWS client host.
+SNS subscription filter policies route messages to the appropriate queue based on the `priority` message attribute. A Lambda function named `datacenter-priorities-queue-function` consumes messages from the queues. The supplied Lambda code is located at `/root/index.py` on the AWS client host.
 
-The CloudFormation stack is named `devops-priority-stack`, and its template is created at `/root/devops-priority-stack.yml`.
+The CloudFormation stack is named `datacenter-priority-stack`, and its template is created at `/root/datacenter-priority-stack.yml`.
 
 > **Priority behavior:** Separate SQS queues do not automatically create a global priority order. The Lambda code must explicitly check and process the high-priority queue before processing the low-priority queue. Review `/root/index.py` to confirm that behavior before testing.
 
@@ -54,8 +54,8 @@ SNS Topic: devops-Priority-Queues-Topic
 - The required role name `lambda_execution_role` must not already be in use by an unrelated resource in the account.
 
 Do not paste AWS access keys or secret credentials into this repository.
-
-## Step 1: Verify AWS CLI Access and the Lambda Source
+**Step-by-step**
+## Step 1: Check your setup
 
 Run these commands on the AWS client host:
 
@@ -63,6 +63,7 @@ Run these commands on the AWS client host:
 aws sts get-caller-identity
 aws configure get region
 ls -l /root/index.py
+cat /root/index.py
 ```
 
 The first command confirms which AWS identity is active. The second displays the configured default region.
@@ -73,112 +74,154 @@ If the region command returns no value, set a region for the current shell, for 
 export AWS_REGION=ap-south-1
 ```
 
-Use the region assigned to your lab, not necessarily the example above. If a region is configured, you can set it explicitly for consistency:
+## Step 2: Create or select your S3 artifact bucket
+
+If you already created an artifact bucket, use that bucket. Otherwise, create a globally unique bucket in us-east-1.
+
+Create S3 global bucket by below command as well
 
 ```bash
-export AWS_REGION="$(aws configure get region)"
+aws s3api create-bucket \
+  --bucket datacenter-priority-artifacts-YOUR-UNIQUE-ID \
+  --region us-east-1
 ```
+Replace YOUR-UNIQUE-ID with a unique suffix before running the command.
 
-## Step 2: Review the Lambda Code
-
-Inspect the supplied code before deployment:
+Set (export) the real bucket name:
 
 ```bash
-sed -n '1,240p' /root/index.py
+export ARTIFACT_BUCKET=datacenter-priority-artifacts-YOUR-UNIQUE-ID
 ```
+Verify the bucket:
+```bash
+aws s3api head-bucket \
+  --bucket "$ARTIFACT_BUCKET" \
+  --region us-east-1
+```
+## Step 3: Package and upload the Lambda code
 
-Confirm that the handler function is named `lambda_handler`, because the template uses `index.lambda_handler`.
-
-Also verify that the code reads from the high-priority queue before the low-priority queue. If the code expects environment variables, make sure their names match the template:
-
-- `HIGH_PRIORITY_QUEUE_URL`
-- `LOW_PRIORITY_QUEUE_URL`
-- `PRIORITY_TOPIC_ARN`
-
-If the supplied code uses different variable names or queue lookup logic, update the template's environment variables or the code to match. Do not assume that merely creating two queues guarantees high-priority-first processing.
-
-## Step 3: Package the Supplied Lambda Code
-
-CloudFormation needs the Lambda deployment package in an artifact location. Create a ZIP file from the supplied Python source:
+Create the ZIP file from your existing Python code:
 
 ```bash
 cd /root
-zip -j /root/index.zip /root/index.py
+
+zip -j -FS /root/datacenter-priorities-function.zip /root/index.py
 ```
-
-If `zip` is not installed, install it using the package manager available on the AWS client host, or create the ZIP file using an available Python utility.
-
+Upload the zip file in the s3 bucket
+```bash
+aws s3 cp \
+  /root/datacenter-priorities-function.zip \
+  "s3://${ARTIFACT_BUCKET}/datacenter-priorities-function.zip" \
+  --region us-east-1
+```
 ## Step 4: Create the CloudFormation Template
 
 Create the required file:
-vi /root/devops-priority-stack.yml
+vi /root/datacenter-priority-stack.yml
 ```bash
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  Day 47 lab: priority-based message routing using SNS, SQS, and Lambda.
-  The Lambda deployment package is created from the supplied /root/index.py.
+Description: Priority queuing with SNS, SQS and Lambda (datacenter lab)
 
 Resources:
+  # ---------- SQS queues ----------
   HighPriorityQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: devops-High-Priority-Queue
-      VisibilityTimeout: 30
+      QueueName: datacenter-High-Priority-Queue
 
   LowPriorityQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: devops-Low-Priority-Queue
-      VisibilityTimeout: 30
+      QueueName: datacenter-Low-Priority-Queue
 
-  PriorityQueuesTopic:
+  # ---------- SNS topic ----------
+  PriorityTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: devops-Priority-Queues-Topic
+      TopicName: datacenter-Priority-Queues-Topic
 
-  HighPrioritySubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      TopicArn: !Ref PriorityQueuesTopic
-      Protocol: sqs
-      Endpoint: !GetAtt HighPriorityQueue.Arn
-      RawMessageDelivery: true
-      FilterPolicy:
-        priority:
-          - high
-
-  LowPrioritySubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      TopicArn: !Ref PriorityQueuesTopic
-      Protocol: sqs
-      Endpoint: !GetAtt LowPriorityQueue.Arn
-      RawMessageDelivery: true
-      FilterPolicy:
-        priority:
-          - low
-
-  PriorityQueuesPolicy:
+  # ---------- Allow SNS to write into the queues ----------
+  HighQueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
       Queues:
         - !Ref HighPriorityQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt HighPriorityQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref PriorityTopic
+
+  LowQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
         - !Ref LowPriorityQueue
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: AllowTopicToSendMessages
-            Effect: Allow
+          - Effect: Allow
             Principal:
               Service: sns.amazonaws.com
             Action: sqs:SendMessage
+            Resource: !GetAtt LowPriorityQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref PriorityTopic
+
+  # ---------- SNS -> SQS subscriptions (routed by the "priority" attribute) ----------
+  HighQueueSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PriorityTopic
+      Protocol: sqs
+      Endpoint: !GetAtt HighPriorityQueue.Arn
+      FilterPolicy:
+        priority:
+          - high
+
+  LowQueueSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PriorityTopic
+      Protocol: sqs
+      Endpoint: !GetAtt LowPriorityQueue.Arn
+      FilterPolicy:
+        priority:
+          - low
+
+  # ---------- Customer managed policy (SQS + SNS access) ----------
+  LambdaCustomManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: datacenter-lambda-sqs-sns-policy
+      Description: Allows the Lambda function to use the priority queues and topic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - sqs:ReceiveMessage
+              - sqs:DeleteMessage
+              - sqs:GetQueueAttributes
+              - sqs:GetQueueUrl
+              - sqs:SendMessage
             Resource:
               - !GetAtt HighPriorityQueue.Arn
               - !GetAtt LowPriorityQueue.Arn
-            Condition:
-              ArnEquals:
-                aws:SourceArn: !Ref PriorityQueuesTopic
+          - Effect: Allow
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+            Resource: !Ref PriorityTopic
 
+  # ---------- IAM role for Lambda ----------
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -192,288 +235,180 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: PriorityQueuesAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Sid: ReadAndDeleteQueueMessages
-                Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:ChangeMessageVisibility
-                Resource:
-                  - !GetAtt HighPriorityQueue.Arn
-                  - !GetAtt LowPriorityQueue.Arn
-              - Sid: PublishToPriorityTopic
-                Effect: Allow
-                Action:
-                  - sns:Publish
-                Resource: !Ref PriorityQueuesTopic
+        - !Ref LambdaCustomManagedPolicy
 
-  PriorityQueueFunction:
+  # ---------- Lambda function ----------
+  PriorityFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: devops-priorities-queue-function
+      FunctionName: datacenter-priorities-queue-function
       Runtime: python3.12
-      Handler: index.lambda_handler
+      Handler: index.lambda_handler   # change if your /root/index.py uses a different function name
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 128
       Timeout: 10
-      Code: ./index.zip
       Environment:
         Variables:
           HIGH_PRIORITY_QUEUE_URL: !Ref HighPriorityQueue
           LOW_PRIORITY_QUEUE_URL: !Ref LowPriorityQueue
-          PRIORITY_TOPIC_ARN: !Ref PriorityQueuesTopic
+      Code:
+        ZipFile: |
+            # PASTE_INDEX_PY_HERE
 
 Outputs:
-  HighPriorityQueueUrl:
-    Description: URL of the high-priority SQS queue
+  TopicArn:
+    Value: !Ref PriorityTopic
+  HighQueueUrl:
     Value: !Ref HighPriorityQueue
-  LowPriorityQueueUrl:
-    Description: URL of the low-priority SQS queue
+  LowQueueUrl:
     Value: !Ref LowPriorityQueue
-  PriorityTopicArn:
-    Description: ARN of the SNS topic
-    Value: !Ref PriorityQueuesTopic
-  LambdaFunctionName:
-    Description: Deployed Lambda function name
-    Value: !Ref PriorityQueueFunction
+  FunctionName:
+    Value: !Ref PriorityFunction
 
 ```
 
-Paste the template from the companion file [`devops-priority-stack.yml`](./devops-priority-stack.yml).
+## Step 5: Validate and deploy the stack
 
-The template creates both queues, the SNS topic, filtered SNS subscriptions, queue permissions allowing SNS to send messages, the Lambda execution role, and the Lambda function.
-
-The Lambda role includes CloudWatch Logs permissions plus the SQS and SNS permissions needed by the function. The role is named exactly `lambda_execution_role`.
-
-## Step 5: Create an S3 Artifact Bucket
-
-The Lambda ZIP file must be uploaded to S3 so CloudFormation can deploy it. Use a unique bucket name. The following example derives a name from your AWS account and region:
+Validate the template first:
 
 ```bash
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ARTIFACT_BUCKET="devops-priority-artifacts-${ACCOUNT_ID} us-east-1
-
-echo "$ARTIFACT_BUCKET"
+aws cloudformation validate-template \
+  --template-body file:///root/datacenter-priority-stack.yml \
+  --region us-east-1
 ```
 
-Create the bucket if it does not already exist:
+If validation succeeds, deploy:
 
 ```bash
-  aws s3api create-bucket \
-    --bucket "$ARTIFACT_BUCKET" \
-    --region "$AWS_REGION" \
-    --create-bucket-configuration LocationConstraint=us-east-1
-fi
+  aws cloudformation deploy \
+  --template-file /root/datacenter-priority-stack.yml \
+  --stack-name datacenter-priority-stack \
+  --parameter-overrides \
+    LambdaCodeBucket="$ARTIFACT_BUCKET" \
+    LambdaCodeKey=datacenter-priorities-function.zip \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1
+```
+Wait for deployment to finish. If it fails, inspect the failure events:
+
+## Step 6: Verify all resources
+Check stack status:
+Run:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name datacenter-priority-stack \
+  --region us-east-1 \
+  --query 'Stacks[0].StackStatus' \
+  --output text
 ```
 
-S3 bucket names are globally unique. If the name is already taken or the bucket already exists under a different owner, choose another unique name. Do not assume that a bucket you cannot access is yours.
+Expected status:
 
-## Step 6: Package the CloudFormation Template
+CREATE_COMPLETE
+
+## Step 7: Verify the queues, topic, Lambda, and IAM policy
+
+You can manual verify 
+1. SNS topic
+2. SQS service
+3. Lambda function
+4. IAM role and custom manage policy are attached on the role
+5. Lambda function timeout should be 10 seconds
+6. Expected configuration includes 128 MB memory and a 10-second timeout.
+
+## Step 8: Verify the lab test
+
+copy the test command from the lab and hit in the aws-client 
+
+## Step 9: Check the queue message counts
 
 Run:
 
 ```bash
-aws cloudformation package \
-  --template-file /root/nautilus-priority-stack.yml \
-  --s3-bucket "$ARTIFACT_BUCKET" \
-  --output-template-file /root/nautilus-priority-stack-packaged.yml \
-  --region us-east-1
-```
+HIGH_QUEUE_URL=$(aws sqs get-queue-url \
+  --queue-name datacenter-High-Priority-Queue \
+  --region "$AWS_REGION" \
+  --query QueueUrl --output text)
 
-The packaging command uploads the local Lambda ZIP artifact to S3 and writes a packaged CloudFormation template.
+LOW_QUEUE_URL=$(aws sqs get-queue-url \
+  --queue-name datacenter-Low-Priority-Queue \
+  --region "$AWS_REGION" \
+  --query QueueUrl --output text)
 
-## Step 7: Deploy the Stack
+aws sqs get-queue-attributes \
+  --queue-url "$HIGH_QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+  --region "$AWS_REGION"
 
-Deploy using the required stack name:
-
-```bash
-aws cloudformation deploy \
-  --template-file /root/nautilus-priority-stack-packaged.yml \
-  --stack-name nautilus-priority-stack \
-  --capabilities CAPABILITY_NAMED_IAM \
+aws sqs get-queue-attributes \
+  --queue-url "$LOW_QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
   --region "$AWS_REGION"
 ```
 
-The `CAPABILITY_NAMED_IAM` acknowledgement is required because the template creates an IAM role with a specified name.
+Expected result, assuming no messages have been consumed:
+- High-priority queue: approximately 2 available messages.
+- Low-priority queue: approximately 2 available messages.
+SQS counts are approximate, so allow a few seconds after publishing.
 
-Check the stack status:
+## Step 10: Test Lambda
 
-```bash
-aws cloudformation describe-stacks \
-  --stack-name nautilus-priority-stack \
-  --query 'Stacks[0].StackStatus' \
-  --output text \
-  --region "$AWS_REGION"
-```
-
-The deployment should finish with `CREATE_COMPLETE`. If it fails, inspect the stack events:
-
-```bash
-aws cloudformation describe-stack-events \
-  --stack-name nautilus-priority-stack \
-  --query 'StackEvents[].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
-  --output table \
-  --region "$AWS_REGION"
-```
-
-## Step 8: Get the SNS Topic ARN
-
-Retrieve the topic ARN as required by the lab:
-
-```bash
-topicarn=$(aws sns list-topics \
-  --query "Topics[?contains(TopicArn, 'nautilus-Priority-Queues-Topic')].TopicArn | [0]" \
-  --output text \
-  --region "$AWS_REGION")
-
-echo "$topicarn"
-```
-
-Confirm that the variable contains an ARN before publishing messages.
-
-## Step 9: Publish Test Messages
-
-Publish the high-priority messages first:
-
-```bash
-aws sns publish \
-  --topic-arn "$topicarn" \
-  --message 'High Priority message 1' \
-  --message-attributes '{"priority":{"DataType":"String","StringValue":"high"}}' \
-  --region "$AWS_REGION"
-
-aws sns publish \
-  --topic-arn "$topicarn" \
-  --message 'High Priority message 2' \
-  --message-attributes '{"priority":{"DataType":"String","StringValue":"high"}}' \
-  --region "$AWS_REGION"
-```
-
-Publish the low-priority messages:
-
-```bash
-aws sns publish \
-  --topic-arn "$topicarn" \
-  --message 'Low Priority message 1' \
-  --message-attributes '{"priority":{"DataType":"String","StringValue":"low"}}' \
-  --region "$AWS_REGION"
-
-aws sns publish \
-  --topic-arn "$topicarn" \
-  --message 'Low Priority message 2' \
-  --message-attributes '{"priority":{"DataType":"String","StringValue":"low"}}' \
-  --region "$AWS_REGION"
-```
-
-SNS subscription filter policies route messages with `priority=high` to the high-priority queue and messages with `priority=low` to the low-priority queue.
-
-## Step 10: Invoke the Lambda Function
-
-Invoke the function using an empty JSON event if the supplied handler is designed to poll the SQS queues itself:
+Your Lambda checks the high-priority queue first and processes at most one message per invocation.
 
 ```bash
 aws lambda invoke \
-  --function-name nautilus-priorities-queue-function \
-  --invocation-type RequestResponse \
+  --function-name datacenter-priorities-queue-function \
   --payload '{}' \
-  --cli-binary-format raw-in-base64-out \
-  /tmp/nautilus-priority-response.json \
-  --region "$AWS_REGION"
+  /root/lambda-test-1.json \
+  --region us-east-1
 
-cat /tmp/nautilus-priority-response.json
+cat /root/lambda-test-1.json
+```
+Your CLI should accept this command. The Lambda function should process one high-priority message and delete it.
+
+## Step 11: Process the remaining messages
+
+Run this loop:
+```bash
+for i in 2 3 4; do
+  aws lambda invoke \
+    --function-name datacenter-priorities-queue-function \
+    --payload '{}' \
+    "/root/lambda-test-$i.json" \
+    --region us-east-1
+
+  echo "Lambda response $i:"
+  cat "/root/lambda-test-$i.json"
+  echo
+done
 ```
 
-Review the response for errors. If the supplied code expects an event with a different structure, use the event format expected by that code.
+Expected responses should include messages being deleted. Since your function checks the high-priority queue first, it should process both high-priority messages before the low-priority messages, provided they are visible when polled.
 
-## Step 11: Review Lambda Logs and Processing Order
-
-Open **CloudWatch → Log groups → `/aws/lambda/nautilus-priorities-queue-function`** in the AWS Management Console.
-
-Inspect the log stream generated by the invocation. Confirm that the function processes the high-priority messages before processing the low-priority messages.
-
-You can also query recent log events with the CLI:
+## Step 12: Verify queue counts again
 
 ```bash
-aws logs filter-log-events \
-  --log-group-name /aws/lambda/nautilus-priorities-queue-function \
-  --region "$AWS_REGION"
+aws sqs get-queue-attributes \
+  --queue-url "$HIGH_QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+  --region us-east-1
+
+aws sqs get-queue-attributes \
+  --queue-url "$LOW_QUEUE_URL" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+  --region us-east-1
 ```
 
-If the invocation processes only a limited number of messages, invoke the function again as appropriate for the supplied code. Verify the actual log output instead of assuming all four messages were processed in one invocation.
+Expected after all four messages are processed: both queues eventually show 
+ApproximateNumberOfMessages: 0 
+ApproximateNumberOfMessagesNotVisible: 0.
 
-### Important Priority Note
 
-SQS standard queues do not provide a priority feature. Priority is implemented here by routing messages to separate queues and having the consumer process the high-priority queue first.
+Excellent! 🎉 Your Datacenter Priority Queue lab is successfully working. Both SQS queues are empty after processing, and Lambda successfully deleted the messages.
 
-If the Lambda function is instead triggered independently by event source mappings for both queues, AWS does not guarantee that a high-priority message will be processed before a low-priority message. The consumer logic must enforce the desired order.
+=============
 
-## Troubleshooting
 
-| Problem | What to check |
-|---|---|
-| CloudFormation deployment fails | Review stack events and the failed resource's status reason. |
-| Lambda code cannot be packaged | Confirm `/root/index.py` exists and the ZIP contains `index.py` at its root. |
-| Lambda handler error | Confirm the handler is `index.lambda_handler` and the function exists in `index.py`. |
-| SNS messages do not reach a queue | Verify topic subscriptions, the `priority` message attribute, filter policy, and queue policy. |
-| Lambda cannot read messages | Verify `lambda_execution_role` has the required SQS permissions and the code uses the correct queue URLs. |
-| Low-priority message is processed first | Verify that the Lambda code explicitly checks the high-priority queue first and that another independent consumer is not processing messages. |
-| Lambda reports access denied | Review the role's SQS/SNS permissions and CloudWatch Logs permissions. |
-| Lambda times out | The function has the required 10-second timeout; review its polling and processing logic. |
 
-## Security and Cost Notes
 
-- Do not commit credentials, access keys, or secret tokens.
-- Keep IAM permissions limited to the resources required by the lab.
-- SQS, SNS, Lambda, CloudWatch Logs, and S3 may incur charges depending on usage and account free-tier eligibility.
-- The artifact bucket is used to store the Lambda deployment package. Keep it if you need it for future deployments, or remove the uploaded artifact and bucket after confirming they are no longer needed.
-
-## Cleanup
-
-Only clean up resources created specifically for this lab and only after saving any logs or evidence you need.
-
-Delete the CloudFormation stack:
-
-```bash
-aws cloudformation delete-stack \
-  --stack-name nautilus-priority-stack \
-  --region "$AWS_REGION"
-
-aws cloudformation wait stack-delete-complete \
-  --stack-name nautilus-priority-stack \
-  --region "$AWS_REGION"
-```
-
-After confirming that the stack has been deleted, optionally remove the artifact bucket if it was created only for this lab and contains no other required objects:
-
-```bash
-aws s3 rm "s3://$ARTIFACT_BUCKET" --recursive --region "$AWS_REGION"
-aws s3api delete-bucket --bucket "$ARTIFACT_BUCKET" --region "$AWS_REGION"
-```
-
-Do not delete an existing bucket or resources belonging to another lab.
-
-## Key Learnings
-
-- Implementing priority routing with SNS subscription filter policies.
-- Separating high-priority and low-priority messages into SQS queues.
-- Using Lambda to consume messages from SQS.
-- Deploying AWS resources using CloudFormation.
-- Packaging Lambda code for CloudFormation deployment.
-- Applying IAM permissions for SQS, SNS, Lambda, and CloudWatch Logs.
-- Verifying processing order through Lambda output and CloudWatch Logs.
-
-## Conclusion
-
-In Day 47 of my 50 Days AWS Practice Lab Challenge, I used AWS CloudFormation to deploy a priority-based messaging workflow using Amazon SNS, Amazon SQS, and AWS Lambda.
-
-SNS filters messages according to their priority attribute and routes them to separate SQS queues. The Lambda consumer must process the high-priority queue before the low-priority queue to enforce the required priority behavior.
-
-This lab demonstrates infrastructure as code, event-driven messaging, IAM permissions, and priority-aware message processing in AWS.
-
-**Day 47 completed — learning AWS one lab at a time! ☁️🚀**
