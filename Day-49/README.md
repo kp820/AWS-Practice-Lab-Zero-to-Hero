@@ -24,12 +24,6 @@ A hands-on AWS lab from the **Datacenter DevOps** team. Log files are collected 
                                                          datacenter-priv-vpc/boot/boots.log
 ```
 
-# Secure Log Aggregation on AWS: Private EC2 → Public EC2 → S3
-
-A hands-on AWS lab from the **Nautilus DevOps** team. A log file is collected from an EC2 instance in a **private VPC**, transferred over a **VPC peering connection** to an EC2 instance in a **public VPC**, and then pushed to a **private S3 bucket**. Everything is built in the AWS Management Console, and the transfers are automated with two cron jobs.
-
----
-
 **Data flow:** `boots.log` on the private instance → `scp` over `datacenter-vpc-peering` → `/home/ubuntu/boots.log` on the public instance → `aws s3 cp` using the instance's IAM role → S3.
 
 ## Resources
@@ -103,10 +97,10 @@ Values used below (replace them with yours):
 - Name: `datacenter-s3-logs-183190420`, same region as the VPCs
 - Keep **Block all public access** turned on
 
-### Step 7. Create the IAM role
-**IAM → Roles → Create role → AWS service → EC2**
-- Skip managed policies and name the role `datacenter-s3-role`
-- Open the role → **Add permissions → Create inline policy → JSON**:
+### Step 7. Create managed policy then IAM role
+- Create managed policies 
+- Go to IAM → **policy → Create policy → JSON**:
+Note: please mention your created bucket ARN's
 
 ```json
 {
@@ -115,12 +109,16 @@ Values used below (replace them with yours):
     {
       "Effect": "Allow",
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::datacenter-s3-logs-183190420/*"
+      "Resource": "arn:aws:s3:::<bucket_name>/*"
     }
   ]
 }
 ```
 - Name the policy `datacenter-s3-putobject-policy`
+
+##Now Create role:
+
+**IAM → Roles → Create role → AWS service → EC2 --> attach policy --> create role**
 
 ### Step 8. Launch the public EC2 instance
 **EC2 → Launch instance**
@@ -172,6 +170,8 @@ ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no ubuntu@<PUB_IP>
 which aws || (sudo apt update && sudo apt install -y unzip curl && \
   curl -s "https://awscli.amazonaws.com/awscliv2.zip" -o awscliv2.zip && \
   unzip -q awscliv2.zip && sudo ./aws/install)
+  sudo apt install awscli -y
+
 which aws
 aws --version
 exit
@@ -191,8 +191,7 @@ scp -i /root/.ssh/datacenter-key.pem \
 ```bash
 ssh -i /root/.ssh/datacenter-key.pem \
  -o ProxyCommand="ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no -W %h:%p ubuntu@<PUB_IP>" \
- -o StrictHostKeyChecking=no \
- ubuntu@<PRIV_IP>
+ -o StrictHostKeyChecking=no ubuntu@<PRIV_IP>
 ```
 
 ### Step 16. Cron job 1: private → public (on the private instance)
