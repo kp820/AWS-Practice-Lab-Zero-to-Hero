@@ -1,6 +1,6 @@
 # Secure Log Aggregation on AWS (Private EC2 → Public EC2 → S3)
 
-A hands-on AWS lab from the **Nautilus DevOps** team. Log files are collected from an EC2 instance in a **private VPC**, transferred over a **VPC peering connection** to an EC2 instance in a **public VPC**, and then pushed to a **private S3 bucket**, all built from the AWS Management Console.
+A hands-on AWS lab from the **Datacenter DevOps** team. Log files are collected from an EC2 instance in a **private VPC**, transferred over a **VPC peering connection** to an EC2 instance in a **public VPC**, and then pushed to a **private S3 bucket**, all built from the AWS Management Console.
 
 ---
 
@@ -20,82 +20,92 @@ A hands-on AWS lab from the **Nautilus DevOps** team. Log files are collected fr
                                                                └──────────────┼───────────────┘
                                                                               │ cron: aws s3 cp
                                                                               ▼
-                                                     s3://datacenter-s3-logs-931010650/
+                                                     s3://datacenter-s3-logs-931010650/ 
                                                          datacenter-priv-vpc/boot/boots.log
 ```
 
-## Resources
+# Secure Log Aggregation on AWS: Private EC2 → Public EC2 → S3
 
-| Resource | Name |
-|---|---|
-| Private VPC *(pre-existing)* | `datacenter-priv-vpc` |
-| Private subnet *(pre-existing)* | `datacenter-priv-subnet` |
-| Private route table *(pre-existing)* | `datacenter-priv-rt` |
-| Private EC2 *(pre-existing)* | `datacenter-priv-ec2` (Ubuntu) |
-| Public VPC | `datacenter-pub-vpc` |
-| Public subnet | `datacenter-pub-subnet` |
-| Public route table | `datacenter-pub-rt` |
-| Internet gateway | `datacenter-pub-igw` |
-| Public EC2 | `datacenter-pub-ec2` |
-| IAM role | `datacenter-s3-role` |
-| S3 bucket | `datacenter-s3-logs-931010650` |
-| VPC peering | `datacenter-vpc-peering` |
-
-> **CIDR planning:** peered VPCs must not have overlapping CIDR blocks. This guide assumes the private VPC uses `10.0.0.0/16` and uses `10.1.0.0/16` for the public VPC. Check the real CIDR of `datacenter-priv-vpc` first and adjust if needed.
-
-| Placeholder | Meaning |
-|---|---|
-| `<PRIV_CIDR>` | CIDR of `datacenter-priv-vpc` |
-| `<PUB_CIDR>` | CIDR of `datacenter-pub-vpc` (`10.1.0.0/16`) |
-| `<PUB_PUBLIC_IP>` | Public IPv4 of `datacenter-pub-ec2` |
-| `<PUB_PRIVATE_IP>` | Private IPv4 of `datacenter-pub-ec2` |
-| `<PRIV_PRIVATE_IP>` | Private IPv4 of `datacenter-priv-ec2` |
-| `<REGION>` | AWS region of the lab |
+A hands-on AWS lab from the **Nautilus DevOps** team. A log file is collected from an EC2 instance in a **private VPC**, transferred over a **VPC peering connection** to an EC2 instance in a **public VPC**, and then pushed to a **private S3 bucket**. Everything is built in the AWS Management Console, and the transfers are automated with two cron jobs.
 
 ---
 
-## Step-by-step (AWS Console)
+**Data flow:** `boots.log` on the private instance → `scp` over `datacenter-vpc-peering` → `/home/ubuntu/boots.log` on the public instance → `aws s3 cp` using the instance's IAM role → S3.
 
-Log in to the console with the credentials from `showcreds` on the `aws-client` host, and make sure you stay in one region throughout.
+## Resources
 
-### 1. Inspect the existing private environment
-1. **VPC → Your VPCs** → note the IPv4 CIDR of `datacenter-priv-vpc`.
-2. **EC2 → Instances** → select `datacenter-priv-ec2` and note its private IP and security group.
+| Resource | Name | Notes |
+|---|---|---|
+| Private VPC | `datacenter-priv-vpc` | Pre-existing |
+| Private subnet | `datacenter-priv-subnet` | Pre-existing |
+| Private route table | `datacenter-priv-rt` | Pre-existing |
+| Private EC2 | `datacenter-priv-ec2` | Pre-existing, Ubuntu |
+| Public VPC | `datacenter-pub-vpc` | Created in this lab |
+| Public subnet | `datacenter-pub-subnet` | Auto-assign public IPv4 enabled |
+| Internet gateway | `datacenter-pub-igw` | Attached to the public VPC |
+| Public route table | `datacenter-pub-rt` | `0.0.0.0/0` → IGW, plus peering route |
+| Public EC2 | `datacenter-pub-ec2` | Same key pair as the private instance |
+| IAM role | `datacenter-s3-role` | `s3:PutObject` only |
+| S3 bucket | `datacenter-s3-logs-183190420` | Block all public access ON |
+| VPC peering | `datacenter-vpc-peering` | Private ↔ public |
+| Key pair | `datacenter-key` | File at `/root/.ssh/datacenter-key.pem` on `aws-client` |
 
-### 2. Create the public VPC
-**VPC → Your VPCs → Create VPC → VPC only**
+## Prerequisites and variables
+
+- Credentials from the `showcreds` command on the `aws-client` host, used to log in to the console.
+- Work in **one region** the whole time. This guide uses `us-east-1`.
+- **Choose non-overlapping CIDRs.** Peered VPCs cannot overlap.
+
+| Private VPC CIDR | Use for the public VPC |
+|---|---|
+| `10.10.0.0/16` | `10.0.0.0/16` |
+| `10.0.0.0/16` | `10.1.0.0/16` |
+
+Values used below (replace them with yours):
+
+| Name | Example | Meaning |
+|---|---|---|
+| `PUB_IP` | `18.233.160.251` | Public IPv4 of `datacenter-pub-ec2` |
+| `PUB_PRIV_IP` | `10.0.2.158` | Private IPv4 of `datacenter-pub-ec2` |
+| `PRIV_IP` | `10.10.1.27` | Private IPv4 of `datacenter-priv-ec2` |
+
+---
+
+## Part 1: Build the infrastructure (console)
+
+### Step 1. Inspect the private side
+- **VPC → Your VPCs**: note the CIDR of `datacenter-priv-vpc`.
+- **EC2 → Instances**: note the private IP of `datacenter-priv-ec2`.
+
+### Step 2. Create the public VPC
+**VPC → Create VPC → VPC only**
 - Name: `datacenter-pub-vpc`
-- IPv4 CIDR: `10.1.0.0/16`
+- IPv4 CIDR: a non-overlapping `/16`, such as `10.0.0.0/16`
 
-### 3. Create the public subnet
+### Step 3. Create the public subnet
 **VPC → Subnets → Create subnet**
-- VPC: `datacenter-pub-vpc`
-- Name: `datacenter-pub-subnet`
-- CIDR: `10.1.1.0/24`
+- VPC: `datacenter-pub-vpc`, name: `datacenter-pub-subnet`, CIDR: for example `10.0.1.0/24`
+- Then **Actions → Edit subnet settings → Enable auto-assign public IPv4 address → Save**
 
-Then **Actions → Edit subnet settings → Enable auto-assign public IPv4 address**.
-
-### 4. Create and attach the internet gateway
+### Step 4. Create and attach the internet gateway
 **VPC → Internet gateways → Create internet gateway**
 - Name: `datacenter-pub-igw`
-- **Actions → Attach to VPC** → `datacenter-pub-vpc`
+- **Actions → Attach to VPC → `datacenter-pub-vpc`**
 
-### 5. Create the public route table
+### Step 5. Create the public route table
 **VPC → Route tables → Create route table**
 - Name: `datacenter-pub-rt`, VPC: `datacenter-pub-vpc`
 - **Routes → Edit routes → Add route:** `0.0.0.0/0` → Internet Gateway → `datacenter-pub-igw`
-- **Subnet associations → Edit → select `datacenter-pub-subnet`**
+- **Subnet associations → Edit** and select `datacenter-pub-subnet`
 
-### 6. Create the private S3 bucket
+### Step 6. Create the S3 bucket
 **S3 → Create bucket**
-- Name: `datacenter-s3-logs-931010650`
-- Region: same as the VPCs
-- **Block all public access:** enabled (default)
+- Name: `datacenter-s3-logs-183190420`, same region as the VPCs
+- Keep **Block all public access** turned on
 
-### 7. Create the IAM role
-**IAM → Roles → Create role**
-- Trusted entity: **AWS service → EC2**
-- Skip attaching managed policies, then name the role `datacenter-s3-role`
+### Step 7. Create the IAM role
+**IAM → Roles → Create role → AWS service → EC2**
+- Skip managed policies and name the role `datacenter-s3-role`
 - Open the role → **Add permissions → Create inline policy → JSON**:
 
 ```json
@@ -105,144 +115,187 @@ Then **Actions → Edit subnet settings → Enable auto-assign public IPv4 addre
     {
       "Effect": "Allow",
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::datacenter-s3-logs-931010650/*"
+      "Resource": "arn:aws:s3:::datacenter-s3-logs-183190420/*"
     }
   ]
 }
 ```
-Name the policy `datacenter-s3-putobject-policy`.
+- Name the policy `datacenter-s3-putobject-policy`
 
-### 8. Launch the public EC2 instance
+### Step 8. Launch the public EC2 instance
 **EC2 → Launch instance**
-- Name: `datacenter-pub-ec2`
-- AMI: Ubuntu
-- Instance type: `t2.micro`
-- Key pair: `datacenter-key` (same as the private instance)
+- Name: `datacenter-pub-ec2`, AMI: Ubuntu, type: `t2.micro`
+- Key pair: `datacenter-key` (the same one as the private instance)
 - Network: VPC `datacenter-pub-vpc`, subnet `datacenter-pub-subnet`, auto-assign public IP **Enable**
-- Security group (new): inbound **SSH (22)** from `0.0.0.0/0` (for lab access) and from `<PRIV_CIDR>`
-- **Advanced details → IAM instance profile:** `datacenter-s3-role`
+- Security group: SSH (22) from `0.0.0.0/0` and from the private VPC CIDR
+- **Advanced details → IAM instance profile → `datacenter-s3-role`**
 
-### 9. Create the VPC peering connection
+> Do not skip the IAM role. Without it, uploads fail with `Unable to locate credentials`. If you forget, attach it later via **Actions → Security → Modify IAM role**.
+
+Note the instance's **public IP** and **private IP**.
+
+### Step 9. Create the VPC peering
 **VPC → Peering connections → Create peering connection**
 - Name: `datacenter-vpc-peering`
-- Requester: `datacenter-priv-vpc`, Accepter: `datacenter-pub-vpc` (same account, same region)
-- Then **Actions → Accept request**
+- Requester: `datacenter-priv-vpc`, accepter: `datacenter-pub-vpc`
+- **Actions → Accept request**, then wait for the status **Active**
 
-### 10. Update both route tables
+### Step 10. Add the peering routes
+**VPC → Route tables**
+
 | Route table | Destination | Target |
 |---|---|---|
-| `datacenter-priv-rt` | `<PUB_CIDR>` (`10.1.0.0/16`) | Peering connection `datacenter-vpc-peering` |
-| `datacenter-pub-rt` | `<PRIV_CIDR>` | Peering connection `datacenter-vpc-peering` |
+| `datacenter-priv-rt` | public VPC CIDR | `datacenter-vpc-peering` |
+| `datacenter-pub-rt` | private VPC CIDR | `datacenter-vpc-peering` |
 
-### 11. Open the private instance's security group
-In the security group of `datacenter-priv-ec2`, add an inbound rule: **SSH (22)** from `<PUB_CIDR>`.
+Each table points at the **other** VPC's CIDR. Also confirm `datacenter-priv-subnet` is associated with `datacenter-priv-rt`.
+
+### Step 11. Allow SSH into the private instance
+In the security group of `datacenter-priv-ec2`, add an inbound rule: **SSH (22)** from the **public VPC CIDR**.
 
 ---
 
-## Configuration on the instances
+## Part 2: Configure the instances (terminal)
 
-All commands below run from the `aws-client` host unless stated otherwise.
+All commands start on the `aws-client` host. After each login, check the prompt to be sure you are on the right machine:
+- Public instance: `ubuntu@ip-10-0-2-158`
+- Private instance: `ubuntu@ip-10-10-1-27`
 
-### A. Prepare the SSH key and connect to the public instance
+### Step 12. Log in to the public instance
 ```bash
 chmod 400 /root/.ssh/datacenter-key.pem
-ssh -i /root/.ssh/datacenter-key.pem ubuntu@<PUB_PUBLIC_IP>
+ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no ubuntu@<PUB_IP>
 ```
 
-### B. Install AWS CLI v2 on the public instance
+### Step 13. Install the AWS CLI (on the public instance)
 ```bash
-sudo apt update && sudo apt install -y unzip curl
-curl "https://awscli.amazonaws.com/awscliv2.zip" -o awscliv2.zip
-unzip -q awscliv2.zip && sudo ./aws/install
+which aws || (sudo apt update && sudo apt install -y unzip curl && \
+  curl -s "https://awscli.amazonaws.com/awscliv2.zip" -o awscliv2.zip && \
+  unzip -q awscliv2.zip && sudo ./aws/install)
+which aws
 aws --version
+exit
 ```
+Note what `which aws` prints (`/usr/bin/aws` or `/usr/local/bin/aws`).
 
-Verify the IAM role is attached (should return the role name):
+### Step 14. Copy the key to the private instance (from `aws-client`)
+The private instance has no public IP, so the copy hops through the public instance:
 ```bash
-curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/
-```
-> If IMDSv2 is enforced, request a token first:
-> `TOKEN=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")`
-> then add `-H "X-aws-ec2-metadata-token: $TOKEN"` to the call.
-
-### C. Reach the private instance (via the public instance as a jump host)
-The private instance has no public IP, so it is reached through the peering connection. From `aws-client`:
-
-```bash
-# Copy the key to the private instance (hops through the public instance)
 scp -i /root/.ssh/datacenter-key.pem \
-    -o ProxyCommand="ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no -W %h:%p ubuntu@<PUB_PUBLIC_IP>" \
-    -o StrictHostKeyChecking=no \
-    /root/.ssh/datacenter-key.pem ubuntu@<PRIV_PRIVATE_IP>:/home/ubuntu/.ssh/datacenter-key.pem
-
-# Log in to the private instance
-ssh -i /root/.ssh/datacenter-key.pem \
-    -o ProxyCommand="ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no -W %h:%p ubuntu@<PUB_PUBLIC_IP>" \
-    -o StrictHostKeyChecking=no \
-    ubuntu@<PRIV_PRIVATE_IP>
+ -o ProxyCommand="ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no -W %h:%p ubuntu@<PUB_IP>" \
+ -o StrictHostKeyChecking=no \
+ /root/.ssh/datacenter-key.pem ubuntu@<PRIV_IP>:/home/ubuntu/.ssh/datacenter-key.pem
 ```
 
-### D. Cron job on the private instance (push log to public instance)
-On `datacenter-priv-ec2`:
+### Step 15. Log in to the private instance (from `aws-client`)
+```bash
+ssh -i /root/.ssh/datacenter-key.pem \
+ -o ProxyCommand="ssh -i /root/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no -W %h:%p ubuntu@<PUB_IP>" \
+ -o StrictHostKeyChecking=no \
+ ubuntu@<PRIV_IP>
+```
+
+### Step 16. Cron job 1: private → public (on the private instance)
+
+**a) Prepare the key and the log file**
 ```bash
 chmod 400 ~/.ssh/datacenter-key.pem
-
-# Make sure the log exists and is readable by the ubuntu user
-ls -l /var/log/boots.log || sudo touch /var/log/boots.log
-sudo chmod 644 /var/log/boots.log
-
-# Test the transfer manually first
-scp -i ~/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no \
-    /var/log/boots.log ubuntu@<PUB_PRIVATE_IP>:/home/ubuntu/boots.log
-
-crontab -e
+ls -l ~/.ssh/datacenter-key.pem /var/log/boots.log
 ```
-Add:
-```cron
-* * * * * scp -i /home/ubuntu/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no /var/log/boots.log ubuntu@<PUB_PRIVATE_IP>:/home/ubuntu/boots.log
-```
+If `boots.log` is missing: `sudo touch /var/log/boots.log && sudo chmod 644 /var/log/boots.log`.
 
-### E. Cron job on the public instance (push log to S3)
-On `datacenter-pub-ec2`:
+**b) Test the copy by hand. It must finish with no error before you continue.**
 ```bash
-# Test manually first
-/usr/local/bin/aws s3 cp /home/ubuntu/boots.log \
-  s3://datacenter-s3-logs-931010650/datacenter-priv-vpc/boot/boots.log --region <REGION>
+scp -i /home/ubuntu/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no \
+  /var/log/boots.log ubuntu@<PUB_PRIV_IP>:/home/ubuntu/boots.log
+```
 
-crontab -e
+**c) Install the cron job**
+```bash
+cat <<'EOF' | crontab -
+* * * * * /usr/bin/scp -i /home/ubuntu/.ssh/datacenter-key.pem -o StrictHostKeyChecking=no /var/log/boots.log ubuntu@<PUB_PRIV_IP>:/home/ubuntu/boots.log >> /home/ubuntu/scp-upload.log 2>&1
+EOF
+crontab -l
+exit
 ```
-Add:
-```cron
-* * * * * /usr/local/bin/aws s3 cp /home/ubuntu/boots.log s3://datacenter-s3-logs-931010650/datacenter-priv-vpc/boot/boots.log --region <REGION>
+Replace `<PUB_PRIV_IP>` with the real IP (for example `10.0.2.158`) **before** pasting. `crontab -l` must show exactly one line with a real IP and no `<>` left.
+
+### Step 17. Cron job 2: public → S3 (on the public instance)
+
+Log in again from `aws-client`:
+```bash
+ssh -i /root/.ssh/datacenter-key.pem ubuntu@<PUB_IP>
 ```
+
+**a) Check the file arrived (wait a minute if it's missing)**
+```bash
+ls -l /home/ubuntu/boots.log
+```
+
+**b) Test the upload by hand. You must see an `upload:` line.**
+```bash
+aws s3 cp /home/ubuntu/boots.log \
+  s3://datacenter-s3-logs-183190420/datacenter-priv-vpc/boot/boots.log --region us-east-1
+```
+
+**c) Install the cron job.** `$(which aws)` is expanded by your shell right now, so the saved line has the full path:
+```bash
+echo "* * * * * $(which aws) s3 cp /home/ubuntu/boots.log s3://datacenter-s3-logs-183190420/datacenter-priv-vpc/boot/boots.log --region us-east-1 >> /home/ubuntu/s3-upload.log 2>&1" | crontab -
+crontab -l
+```
+The saved line must start with a full path (such as `/usr/bin/aws`) and must say `aws`, not `scp`.
+
+> `crontab -` replaces the machine's entire crontab. That is fine here because each machine has only one job.
 
 ---
 
 ## Verification
 
 1. Wait 1-2 minutes for both cron jobs to run.
-2. **S3 console** → `datacenter-s3-logs-931010650` → `datacenter-priv-vpc/` → `boot/` → `boots.log` should be present.
-3. Or from the CLI:
+2. On the public instance:
    ```bash
-   aws s3 ls s3://datacenter-s3-logs-931010650/datacenter-priv-vpc/boot/
+   tail -3 /home/ubuntu/s3-upload.log
    ```
-4. Inspect cron activity if needed: `grep CRON /var/log/syslog | tail`
+   Expect `upload:` lines.
+3. **S3 console** → `datacenter-s3-logs-183190420` → `datacenter-priv-vpc/` → `boot/` → `boots.log` must exist.
+4. Optional end-to-end test, on the private instance:
+   ```bash
+   echo "test $(date)" | sudo tee -a /var/log/boots.log
+   ```
+   After about 2 minutes, the object's **Last modified** time in S3 should update.
+
+> The role only has `s3:PutObject`, so `aws s3 ls` from the public instance is denied (`s3:ListBucket`). That is expected and correct. Verify in the S3 console instead.
+
+---
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| `scp` from private to public times out | Missing peering routes, or SSH (22) not allowed from the private CIDR in the public security group |
-| Cannot SSH to the private instance | Private SG does not allow SSH from `<PUB_CIDR>`, or the peering route is missing |
-| Peering shows `pending-acceptance` | Accept the request in the VPC console |
-| `AccessDenied` on `s3 cp` | Role not attached to the instance, or the policy resource ARN is wrong (must end in `/*`) |
-| `aws: command not found` in cron | Use the full path `/usr/local/bin/aws` |
-| `Permission denied` reading the log | Run `sudo chmod 644 /var/log/boots.log` on the private instance |
-| CIDR overlap error on peering | Pick a different CIDR for the public VPC |
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Unable to locate credentials` on upload | IAM role not attached to the public instance | EC2 → instance → Actions → Security → Modify IAM role → `datacenter-s3-role` |
+| `AccessDenied ... s3:ListBucket` | Role only allows `PutObject` | Expected; check the S3 console instead |
+| `scp` or SSH to the private instance hangs | Missing peering route, peering not Active, or SSH (22) blocked | Check both route tables, peering status, and the private security group |
+| `Permission denied (publickey)` | Key missing or wrong on the private instance | Redo Step 14, then `chmod 400` the key |
+| `/home/ubuntu/boots.log` missing on the public instance | Private-side cron not delivering | On the private instance run `tail /home/ubuntu/scp-upload.log` and test `scp` by hand |
+| `bash: syntax error near unexpected token 'newline'` | A `<placeholder>` was pasted literally | Replace the `<...>` with the real value |
+| `identity file -o not accessible` or `invalid characters` | Shell variables used on the wrong machine (they exist only on `aws-client`) | Run those commands from `aws-client`, or use literal values |
+| `aws: command not found` or silent cron failure | Cron has a minimal `PATH` | Use the full path from `which aws` in the cron line |
+| `tail: cannot open s3-upload.log` right after install | Cron hasn't run yet; the log is created on first run | Wait a minute and retry |
+| Peering creation fails with a CIDR error | VPC CIDRs overlap | Use a different CIDR for the public VPC |
 
-## Security Notes
-- The S3 bucket keeps **Block Public Access** enabled, and the role grants only `s3:PutObject` on this one bucket.
-- For production, replace `0.0.0.0/0` SSH access with a specific IP or use SSM Session Manager, and use a dedicated key pair for the private → public transfer instead of reusing `datacenter-key`.
+## Lessons learned
+
+- **Test by hand before cron.** If the manual command fails, the cron job will fail too, only silently.
+- **Always use full paths in cron** (`/usr/bin/scp`, `/usr/bin/aws`). Cron does not use your login shell's `PATH`.
+- **Log cron output** with `>> file 2>&1`. Without it, errors disappear (no MTA is installed on these instances).
+- **Check your prompt after every login.** Several errors came from running commands on the wrong instance.
+- **Shell variables do not travel over SSH.** Variables set on `aws-client` do not exist inside the instances.
+- **Attach the IAM role at launch**, and give it the narrowest permission that works (`PutObject` on one bucket).
+- **`crontab -` overwrites the whole crontab.** Use `crontab -e` if a machine ever needs more than one job.
+
+## Security notes
+- The S3 bucket keeps **Block all public access** enabled, and the role grants only `s3:PutObject` on this one bucket.
+- For production, replace `0.0.0.0/0` SSH access with a specific IP or use SSM Session Manager, and use a dedicated key pair for the private → public transfer rather than copying the main key.
 
 ## Cleanup
-Delete in this order to avoid dependency errors: EC2 instances → peering connection → IGW (detach, then delete) → subnet → route table → VPC → IAM role → S3 bucket (empty it first).
+Delete in this order to avoid dependency errors: EC2 instances → peering connection → internet gateway (detach, then delete) → subnet → route table → VPC → IAM role → S3 bucket (empty it first).
