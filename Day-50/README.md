@@ -139,13 +139,13 @@ echo "$PUBLIC_IP"
 Set the correct key permissions:
 
 ```bash
-chmod 400 /root/nautilus-keypair.pem
+chmod 400 /root/<labname>-keypair.pem
 ```
 
-Connect to the instance:
+Connect to the instance and its amazon linux vm:
 
 ```bash
-ssh -i /root/nautilus-keypair.pem ubuntu@$PUBLIC_IP
+ssh -i /root/nautilus-keypair.pem ec2-user@$PUBLIC_IP
 ```
 
 If the instance uses another Linux distribution, use its appropriate SSH username.
@@ -170,44 +170,11 @@ Identify the root filesystem device and filesystem type:
 findmnt -no SOURCE,FSTYPE /
 ```
 
-Identify whether the root device is an NVMe device or an older Xen device.
-
-Examples:
-
-- NVMe: `/dev/nvme0n1p1`
-- Xen: `/dev/xvda1`
-
-The parent disk is `/dev/nvme0n1` or `/dev/xvda`, respectively.
-
 ## Step 6: Extend the Root Partition
-
-Use `growpart` to expand partition 1.
-
-For an NVMe root disk:
-
-```bash
-sudo growpart /dev/nvme0n1 1
-```
-
 For a Xen root disk:
 
 ```bash
 sudo growpart /dev/xvda 1
-```
-
-If `growpart` is unavailable on Ubuntu/Debian, install the required utility:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y cloud-guest-utils
-```
-
-Run the appropriate `growpart` command again.
-
-Verify the partition size:
-
-```bash
-lsblk
 ```
 
 ## Step 7: Extend the Root Filesystem
@@ -217,15 +184,6 @@ First, identify the filesystem type:
 ```bash
 findmnt -no FSTYPE /
 ```
-
-For an **ext4** filesystem:
-
-```bash
-sudo resize2fs /dev/nvme0n1p1
-```
-
-Replace the device with the actual root partition identified earlier. For example, use `/dev/xvda1` for a Xen root disk.
-
 For an **XFS** filesystem:
 
 ```bash
