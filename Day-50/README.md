@@ -179,10 +179,6 @@ sudo growpart /dev/xvda 1
 
 ## Step 7: Extend the Root Filesystem
 
-First, identify the filesystem type:
-
-```bash
-findmnt -no FSTYPE /
 ```
 For an **XFS** filesystem:
 
