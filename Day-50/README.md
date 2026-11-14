@@ -179,7 +179,6 @@ sudo growpart /dev/xvda 1
 
 ## Step 7: Extend the Root Filesystem
 
-```
 For an **XFS** filesystem:
 
 ```bash
