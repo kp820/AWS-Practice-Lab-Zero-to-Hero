@@ -149,7 +149,7 @@ The website should load successfully.
 Try to access the object directly through S3:
 
 ```text
-https://kamta-private-static-site-demo.s3.ap-south-1.amazonaws.com/index.html
+https://aws-private-static-site-demo.s3.ap-south-1.amazonaws.com/index.html
 ```
 
 The expected response is:
