@@ -101,10 +101,10 @@ Add the following policy:
         "Service": "cloudfront.amazonaws.com"
       },
       "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::**YOUR-BUCKET-NAME**/*",
+      "Resource": "arn:aws:s3:::YOUR-BUCKET-NAME/*",
       "Condition": {
         "StringEquals": {
-          "AWS:SourceArn": "arn:aws:cloudfront::**YOUR-ACCOUNT-ID**:distribution/**YOUR-DISTRIBUTION-ID**"
+          "AWS:SourceArn": "arn:aws:cloudfront::YOUR-ACCOUNT-ID:distribution/YOUR-DISTRIBUTION-ID"
         }
       }
     }
@@ -131,14 +131,14 @@ This policy allows only CloudFront distribution `**Your distribution id**` to re
 Open the CloudFront URL:
 
 ```text
-https://**Your distribution**.cloudfront.net/
+https://Your distribution.cloudfront.net/
 like: https://dtkpyn8xccnla.cloudfront.net/
 ```
 
 You can also test the file directly through CloudFront:
 
 ```text
-https://**Your distribution**.cloudfront.net/index.html
+https://Your distribution.cloudfront.net/index.html
 like: https://dtkpyn8xccnla.cloudfront.net/index.html
 ```
 
