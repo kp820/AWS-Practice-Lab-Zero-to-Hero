@@ -12,11 +12,11 @@ User -> HTTPS -> Amazon CloudFront -> OAC-signed request -> Private S3 bucket
 
 | Resource | Value |
 |---|---|
-| S3 bucket | `kamta-private-static-site-demo` |
+| S3 bucket | `aws-private-static-site-demo` |
 | AWS Region | `ap-south-1` |
-| AWS account ID | `680114966754` |
-| CloudFront distribution ID | `E36FSU2AII9TL2` |
-| CloudFront domain | `dtkpyn8xccnla.cloudfront.net` |
+| AWS account ID | `112233445566` |
+| CloudFront distribution ID | `E36FSU2A259TL2` |
+| CloudFront domain | `dtkpyn8xaanla.cloudfront.net` |
 | Default root object | `index.html` |
 
 > The CloudFront domain may change if the distribution is recreated.
@@ -32,8 +32,8 @@ User -> HTTPS -> Amazon CloudFront -> OAC-signed request -> Private S3 bucket
 1. Sign in to the AWS Management Console.
 2. Open **Amazon S3**.
 3. Select **Create bucket**.
-4. Enter the bucket name: `kamta-private-static-site-demo`.
-5. Select the AWS Region: `Asia Pacific (Mumbai) ap-south-1`.
+4. Enter your own bucket name like: `aws-private-static-site-demo`.
+5. Select your AWS Region: `Asia Pacific (Mumbai) ap-south-1`.
 6. Keep **Object Ownership** set to **Bucket owner enforced**.
 7. Keep **Block all public access** enabled.
 8. Select **Create bucket**.
@@ -42,7 +42,7 @@ Do not make the bucket public.
 
 ## Step 2: Upload the website
 
-1. Open the S3 bucket `kamta-private-static-site-demo`.
+1. Open the S3 bucket `aws-private-static-site-demo`.
 2. Select **Upload**.
 3. Upload `index.html` to the bucket root.
 4. Confirm the final object key is exactly:
@@ -60,7 +60,7 @@ Do not enable S3 static website hosting. CloudFront OAC uses the standard S3 RES
 3. For **Origin domain**, select:
 
 ```text
-kamta-private-static-site-demo.s3.ap-south-1.amazonaws.com
+aws-private-static-site-demo.s3.ap-south-1.amazonaws.com
 ```
 
 4. Under **Origin access**, select **Origin access control settings (recommended)**.
@@ -86,7 +86,7 @@ index.html
 
 Open:
 
-**Amazon S3 -> kamta-private-static-site-demo -> Permissions -> Bucket policy**
+**Amazon S3 → Bucket → Permissions → edit Bucket policy**
 
 Add the following policy:
 
@@ -101,10 +101,10 @@ Add the following policy:
         "Service": "cloudfront.amazonaws.com"
       },
       "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::kamta-private-static-site-demo/*",
+      "Resource": "arn:aws:s3:::**YOUR-BUCKET-NAME**/*",
       "Condition": {
         "StringEquals": {
-          "AWS:SourceArn": "arn:aws:cloudfront::680114966754:distribution/E36FSU2AII9TL2"
+          "AWS:SourceArn": "arn:aws:cloudfront::**YOUR-ACCOUNT-ID**:distribution/**YOUR-DISTRIBUTION-ID**"
         }
       }
     }
@@ -112,12 +112,12 @@ Add the following policy:
 }
 ```
 
-This policy allows only CloudFront distribution `E36FSU2AII9TL2` to read the website objects.
+This policy allows only CloudFront distribution `**Your distribution id**` to read the website objects.
 
 ## Step 5: Verify the OAC attachment
 
 1. Open **CloudFront**.
-2. Select distribution `E36FSU2AII9TL2`.
+2. Select distribution `**Your distribution id**`.
 3. Open the **Origins** tab.
 4. Select the S3 origin and choose **Edit**.
 5. Confirm:
@@ -131,13 +131,15 @@ This policy allows only CloudFront distribution `E36FSU2AII9TL2` to read the web
 Open the CloudFront URL:
 
 ```text
-https://dtkpyn8xccnla.cloudfront.net/
+https://**Your distribution**.cloudfront.net/
+like: https://dtkpyn8xccnla.cloudfront.net/
 ```
 
 You can also test the file directly through CloudFront:
 
 ```text
-https://dtkpyn8xccnla.cloudfront.net/index.html
+https://**Your distribution**.cloudfront.net/index.html
+like: https://dtkpyn8xccnla.cloudfront.net/index.html
 ```
 
 The website should load successfully.
